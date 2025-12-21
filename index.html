@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>年齡擺放大挑戰</title>
+  
+  <!-- 引入 Tailwind CSS (樣式) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 引入 React 和 ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- 引入 Babel (讓瀏覽器看懂 JSX) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <style>
+    body { overscroll-behavior: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    /* 記憶倒數動畫 */
+    @keyframes pulse-red {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.2); opacity: 0.8; }
+    }
+    .animate-timer-tick {
+      animation: pulse-red 0.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    /* 爆炸特效 */
+    @keyframes explode {
+      0% { transform: scale(1); filter: brightness(1); }
+      50% { transform: scale(1.1); filter: brightness(5) contrast(2); }
+      100% { transform: scale(1.5); opacity: 0; filter: brightness(10); }
+    }
+    .animate-explode {
+      animation: explode 0.8s ease-out forwards;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translate(0, 0); }
+      10%, 30%, 50%, 70%, 90% { transform: translate(-10px, -10px); }
+      20%, 40%, 60%, 80% { transform: translate(10px, 10px); }
+    }
+    .animate-shake {
+      animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 h-screen overflow-hidden flex flex-col">
+  
+  <div id="root" class="h-full flex flex-col"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    // --- 音效工具函數 (Web Audio API) ---
+    
+    const getAudioContext = () => {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return null;
+        if (!window.audioCtx) window.audioCtx = new AudioContext();
+        return window.audioCtx;
+    };
+
+    // 音效計時器管理 (用於停止音樂)
+    const audioTimeouts = []; 
+
+    const playTone = (freq, type, duration, vol = 0.1, ramp = true) => {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        
+        gain.gain.setValueAtTime(vol, ctx.currentTime);
+        if (ramp) {
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+        } else {
+            gain.gain.setValueAtTime(0, ctx.currentTime + duration);
+        }
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + duration);
+    };
+
+    const playNoise = (duration, vol = 0.1) => {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        const bufferSize = ctx.sampleRate * duration;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(vol, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+        noise.connect(gain);
+        gain.connect(ctx.destination);
+        noise.start();
+    };
+
+    // 音效集合
+    const sounds = {
+        stopAll: () => {
+            // 清除所有排程的音效 (例如過關音樂)
+            audioTimeouts.forEach(id => clearTimeout(id));
+            audioTimeouts.length = 0;
+            
+            // 嘗試暫停/重置 Context (雖然簡單的振盪器是 fire-and-forget，但這可以確保新的開始乾淨)
+            const ctx = getAudioContext();
+            if (ctx && ctx.state === 'running') {
+                // 不直接 close，以免無法再播，而是依賴後續新的 oscillator
+                // 對於正在播放的長音效(如煙火噪音)，這裡無法直接單獨停止特定的 source node (因為沒存 ref)，
+                // 但因為它們都有 duration，會自動停止。
+                // 最重要的是停止 `setTimeout` 產生的後續音符。
+            }
+        },
+        drag: () => {
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.setValueAtTime(200, ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.1, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.1);
+        },
+        success: () => {
+            playTone(523.25, 'sine', 0.1, 0.3); 
+            const id = setTimeout(() => playTone(1046.5, 'sine', 0.4, 0.3), 100);
+            audioTimeouts.push(id);
+        },
+        error: () => playTone(150, 'sawtooth', 0.4, 0.2),
+        tick: () => playTone(800, 'square', 0.05, 0.05),
+        warningTick: () => playTone(1200, 'square', 0.1, 0.1),
+        alarm: () => { 
+            playTone(1500, 'sawtooth', 0.1, 0.15, false);
+            const id = setTimeout(() => playTone(1500, 'sawtooth', 0.1, 0.15, false), 150);
+            audioTimeouts.push(id);
+        },
+        bombTick: () => playTone(1000, 'square', 0.05, 0.1),
+        explosion: () => playNoise(1.5, 1),
+        winMusic: () => {
+            const notes = [523.25, 659.25, 783.99, 1046.50];
+            notes.forEach((freq, i) => {
+                const id = setTimeout(() => playTone(freq, 'triangle', 0.5, 0.2), i * 100);
+                audioTimeouts.push(id);
+            });
+        },
+        failMusic: () => {
+            const notes = [440, 415, 392, 349];
+            notes.forEach((freq, i) => {
+                const id = setTimeout(() => playTone(freq, 'sawtooth', 0.4, 0.2), i * 300);
+                audioTimeouts.push(id);
+            });
+        },
+        firework: () => {
+            playNoise(0.8, 0.15); 
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.setValueAtTime(800, ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.5);
+            gain.gain.setValueAtTime(0.05, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.5);
+        }
+    };
+
+    // --- 煙火特效組件 ---
+    const Fireworks = () => {
+        const canvasRef = useRef(null);
+        useEffect(() => {
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d');
+            let particles = [];
+            let animationFrameId;
+            
+            const createParticle = (x, y) => {
+                const count = 30;
+                sounds.firework();
+                for(let i=0; i<count; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 5 + 2;
+                    particles.push({
+                        x, y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        life: 1,
+                        color: `hsl(${Math.random() * 360}, 100%, 50%)`
+                    });
+                }
+            };
+
+            const animate = () => {
+                if(!canvas) return;
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.globalCompositeOperation = 'lighter';
+
+                particles.forEach((p, i) => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += 0.1; // gravity
+                    p.life -= 0.02;
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 2, 0, Math.PI*2);
+                    ctx.fill();
+                });
+                
+                particles = particles.filter(p => p.life > 0);
+                
+                if(Math.random() < 0.03) {
+                    createParticle(Math.random()*canvas.width, Math.random()*canvas.height/2);
+                }
+                
+                animationFrameId = requestAnimationFrame(animate);
+            };
+            
+            const resize = () => {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            };
+            window.addEventListener('resize', resize);
+            resize();
+            animate();
+            
+            return () => {
+                window.removeEventListener('resize', resize);
+                cancelAnimationFrame(animationFrameId);
+            };
+        }, []);
+        return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-50" />;
+    };
+
+    // --- 圖示組件 ---
+    const IconBase = ({ children, size = 24, className = "", ...props }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>{children}</svg>
+    );
+    const Upload = (props) => <IconBase {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></IconBase>;
+    const Plus = (props) => <IconBase {...props}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></IconBase>;
+    const Play = (props) => <IconBase {...props}><polygon points="5 3 19 12 5 21 5 3" fill="currentColor"/></IconBase>;
+    const Edit = (props) => <IconBase {...props}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></IconBase>;
+    const Check = (props) => <IconBase {...props}><polyline points="20 6 9 17 4 12"/></IconBase>;
+    const RefreshCw = (props) => <IconBase {...props}><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M16 8h5V3"/></IconBase>;
+    const ImageIcon = (props) => <IconBase {...props}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></IconBase>;
+    const Trash2 = (props) => <IconBase {...props}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></IconBase>;
+    const Trophy = (props) => <IconBase {...props}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M2 17h20"/><path d="M15 17v-6.6a6 6 0 1 0-6 0V17"/></IconBase>;
+    const Camera = (props) => <IconBase {...props}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></IconBase>;
+    const Star = (props) => <IconBase {...props}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></IconBase>;
+    const TimerIcon = (props) => <IconBase {...props}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></IconBase>;
+    const Bomb = (props) => <IconBase {...props}><circle cx="12" cy="13" r="9"/><path d="M11 2a1 1 0 0 1 2 0v2h-2V2z"/><path d="m20.5 5.5-1.5 1.5"/></IconBase>;
+    const Skull = (props) => <IconBase {...props}><path d="m12.5 17-.5-1-.5 1h1z"/><path d="M15 22a1 1 0 0 0 1-1v-1a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20v1a1 1 0 0 0 1 1h6z"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="12" r="1"/></IconBase>;
+
+
+    // --- 編輯區域組件 (EditZone) ---
+    const EditZone = ({ item, containerRef, onUpdate, onDelete }) => {
+      const [isMoving, setIsMoving] = useState(false);
+      const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 }); 
+
+      const handleStart = (e) => {
+        e.stopPropagation();
+        
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        const mouseXPercent = ((clientX - rect.left) / rect.width) * 100;
+        const mouseYPercent = ((clientY - rect.top) / rect.height) * 100;
+        
+        setDragOffset({
+          x: mouseXPercent - item.x,
+          y: mouseYPercent - item.y
+        });
+
+        setIsMoving(true);
+      };
+
+      useEffect(() => {
+        const handleGlobalMove = (e) => {
+          if (!isMoving || !containerRef.current) return;
+          
+          if(e.cancelable && e.type === 'touchmove') e.preventDefault();
+
+          const rect = containerRef.current.getBoundingClientRect();
+          const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+          const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+          const mouseXPercent = ((clientX - rect.left) / rect.width) * 100;
+          const mouseYPercent = ((clientY - rect.top) / rect.height) * 100;
+            
+          onUpdate(item.id, { 
+            x: mouseXPercent - dragOffset.x, 
+            y: mouseYPercent - dragOffset.y 
+          });
+        };
+
+        const handleGlobalUp = () => {
+          setIsMoving(false);
+        };
+
+        if (isMoving) {
+          window.addEventListener('mousemove', handleGlobalMove);
+          window.addEventListener('mouseup', handleGlobalUp);
+          window.addEventListener('touchmove', handleGlobalMove, { passive: false });
+          window.addEventListener('touchend', handleGlobalUp);
+        }
+        return () => {
+          window.removeEventListener('mousemove', handleGlobalMove);
+          window.removeEventListener('mouseup', handleGlobalUp);
+          window.removeEventListener('touchmove', handleGlobalMove);
+          window.removeEventListener('touchend', handleGlobalUp);
+        };
+      }, [isMoving, item.id, dragOffset, onUpdate, containerRef]);
+
+      const fontSizeClass = item.name.length > 4 ? "text-[10px] leading-tight" : "text-sm";
+
+      return (
+        <div
+          className="absolute border-2 border-dashed border-white bg-black/30 cursor-move group hover:bg-black/50 transition-colors flex items-center justify-center touch-none shadow-sm z-30"
+          style={{
+            left: `${item.x}%`,
+            top: `${item.y}%`,
+            width: `${item.width}%`,
+            height: `${item.height}%`,
+          }}
+          onMouseDown={handleStart}
+          onTouchStart={handleStart}
+        >
+          {item.image && (
+            <img 
+              src={item.image} 
+              alt={item.name} 
+              className="absolute inset-0 w-full h-full object-cover opacity-60 pointer-events-none" 
+            />
+          )}
+
+          <span className={`text-white font-bold drop-shadow-md select-none pointer-events-none z-10 text-center px-1 ${fontSizeClass}`}>{item.name}</span>
+          
+          <button 
+            onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}
+            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity z-20"
+            onTouchEnd={(e) => { e.stopPropagation(); onDelete(item.id); }} 
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      );
+    };
+
+    // --- 遊戲目標區域組件 ---
+    const GameTarget = ({ item, isPlaced, onDragStart }) => {
+      const [imgError, setImgError] = useState(false);
+
+      useEffect(() => {
+        if (isPlaced) setImgError(false);
+      }, [isPlaced, item]);
+
+      return (
+        <div
+          className={`absolute transition-all duration-300 rounded-lg flex items-center justify-center z-20 overflow-hidden
+            ${isPlaced ? 'opacity-100 shadow-lg scale-100 cursor-grab active:cursor-grabbing hover:brightness-110' : 'opacity-0'}
+          `}
+          style={{
+            left: `${item.x}%`,
+            top: `${item.y}%`,
+            width: `${item.width}%`,
+            height: `${item.height}%`,
+            backgroundColor: isPlaced ? '' : 'transparent'
+          }}
+          onMouseDown={(e) => isPlaced && onDragStart(e, item)}
+          onTouchStart={(e) => isPlaced && onDragStart(e, item)}
+        >
+          {isPlaced && (
+            <React.Fragment>
+              <div className={`absolute inset-0 w-full h-full ${item.color} flex items-center justify-center text-white font-bold shadow-inner pointer-events-none`}>
+                 <span className="drop-shadow-md text-sm p-1 text-center">{item.name}</span>
+              </div>
+
+              {!imgError && (
+                <img 
+                  src={item.image || `${item.name}.png`} 
+                  alt={item.name} 
+                  className="absolute inset-0 w-full h-full object-cover pointer-events-none bg-slate-800"
+                  onError={() => setImgError(true)} 
+                />
+              )}
+              
+              <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition-colors pointer-events-none">
+                 <Check size={24} className="text-white drop-shadow-lg" />
+              </div>
+            </React.Fragment>
+          )}
+        </div>
+      );
+    };
+
+    // --- 側邊卡牌組件 ---
+    const TrayItem = ({ item, mode, handleDragStart, handleCardImageUpload }) => {
+        return (
+            <div
+                onTouchStart={(e) => mode === 'play' && handleDragStart(e, item)}
+                onMouseDown={(e) => mode === 'play' && handleDragStart(e, item)}
+                className={`
+                relative w-full h-24 rounded-xl shadow-lg border-2 border-slate-600
+                flex items-center justify-center shrink-0 overflow-hidden group
+                ${mode === 'play' ? 'cursor-grab active:cursor-grabbing hover:border-indigo-400' : ''}
+                ${item.color}
+                ${mode === 'edit' ? 'hover:border-indigo-400' : ''}
+                transition-transform hover:scale-105 select-none
+                `}
+            >
+                <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white to-transparent" />
+
+                <span className={`text-white font-bold drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] z-10 text-center px-2 ${item.name.length > 4 ? "text-lg" : "text-2xl"}`}>
+                    {item.name}
+                </span>
+                
+                {mode === 'edit' && (
+                <label className="absolute inset-0 cursor-pointer flex flex-col items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                    <Camera size={24} className="text-white mb-1" />
+                    <span className="text-white text-xs font-bold">設定圖片</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleCardImageUpload(e, item.id)} />
+                </label>
+                )}
+            </div>
+        );
+    };
+
+    // --- 初始佈局生成 ---
+    const generateInitialLayout = () => {
+      const newItems = [];
+      const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-orange-500'];
+      const nameMap = {
+        1: '彌月', 2: '襁褓', 3: '周晬', 4: '始齔之年', 5: '總角',
+        6: '荳蔻年華', 7: '及笄束髮志學', 8: '破瓜之年', 9: '弱冠之禮', 10: '花信之年',
+        11: '而立之年', 12: '不惑之年', 13: '知命之年', 14: '花甲耳順', 15: '古稀之年',
+        16: '耄耋之年', 17: '期頤之年'
+      };
+      const colCounts = [5, 5, 3, 4];
+      let idCounter = 1;
+      const baseTop = 8; const baseLeft = 5; const xStep = 23; const yStep = 16; 
+      const cmUnit = 4; const originalShift = 8; 
+
+      colCounts.forEach((count, colIndex) => {
+        let xOffset = 0; let yOffset = 0;
+        if (colIndex === 0) { xOffset = -1 * (cmUnit * 0.25); yOffset = originalShift; } 
+        else if (colIndex === 1) { xOffset = cmUnit * 0.6; yOffset = originalShift + (cmUnit * 0.5); } 
+        else if (colIndex === 2) { xOffset = originalShift - cmUnit; yOffset = originalShift + cmUnit; } 
+        else if (colIndex === 3) { xOffset = originalShift - cmUnit; yOffset = originalShift + cmUnit; }
+
+        for (let rowIndex = 0; rowIndex < count; rowIndex++) {
+          let finalX = baseLeft + colIndex * xStep + xOffset;
+          let finalY = baseTop + rowIndex * yStep + yOffset;
+          let finalWidth = 18; let finalHeight = 12.5;
+
+          if (idCounter === 12 || idCounter === 13) finalY += cmUnit;
+          if (idCounter === 15 || idCounter === 16 || idCounter === 17) finalY += cmUnit;
+
+          if (idCounter === 1) { finalY -= (cmUnit * 0.3); finalX -= (cmUnit * 0.2); finalHeight += (cmUnit * 0.1); finalWidth += (cmUnit * 0.1); }
+          if (idCounter === 2) { finalY -= (cmUnit * 1.0); finalX -= (cmUnit * 0.2); finalWidth += (cmUnit * 0.2); }
+          if (idCounter === 3) { finalY -= (cmUnit * 1.8); finalX -= (cmUnit * 0.2); finalWidth += (cmUnit * 0.2); finalHeight += (cmUnit * 0.2); }
+          if (idCounter === 4) { finalY += (cmUnit * 0.9); finalX -= (cmUnit * 0.2); finalWidth += (cmUnit * 0.2); finalY -= (cmUnit * 0.1); finalHeight += (cmUnit * 0.1); } 
+          if (idCounter === 5) { finalY += (cmUnit * 0.5); finalX -= (cmUnit * 0.1); finalWidth += (cmUnit * 0.4); finalX -= (cmUnit * 0.1); finalWidth += (cmUnit * 0.1); finalY -= (cmUnit * 0.2); finalHeight += (cmUnit * 0.2); finalHeight -= (cmUnit * 0.2); finalY -= (cmUnit * 0.1); finalHeight += (cmUnit * 0.1); finalWidth += (cmUnit * 0.2); finalHeight -= (cmUnit * 0.1); } 
+          
+          if (idCounter >= 6 && idCounter <= 10) { finalX -= (cmUnit * 0.2); finalWidth += (cmUnit * 0.6); finalY -= (cmUnit * 0.2); finalHeight += (cmUnit * 0.2); }
+          
+          if (idCounter === 7) { finalY -= (cmUnit * 0.2); finalHeight += (cmUnit * 0.4); }
+          if (idCounter === 8) { finalHeight += (cmUnit * 0.1); }
+          if (idCounter === 9) { finalY -= (cmUnit * 0.1); finalHeight += (cmUnit * 0.2); }
+          if (idCounter === 10) { finalY -= (cmUnit * 0.1); finalHeight += (cmUnit * 0.1); finalX += (cmUnit * 0.1); finalWidth -= (cmUnit * 0.1); }
+
+          if (idCounter === 11) { finalY -= (cmUnit * 0.3); finalHeight += (cmUnit * 0.7); }
+          if (idCounter === 12) { finalHeight += (cmUnit * 0.9); }
+          if (idCounter === 13) { finalY += (cmUnit * 1.4); finalHeight += (cmUnit * 0.5); }
+          if (idCounter === 14) { finalY -= (cmUnit * 0.5); finalHeight += (cmUnit * 0.8); finalWidth += (cmUnit * 0.1); }
+          if (idCounter === 15) { finalY -= (cmUnit * 1.1); finalHeight += (cmUnit * 0.9); finalWidth += (cmUnit * 0.1); }
+          if (idCounter === 16) { finalY -= (cmUnit * 0.2); finalHeight += (cmUnit * 0.9); finalWidth += (cmUnit * 0.1); }
+          if (idCounter === 17) { finalY += (cmUnit * 0.4); finalHeight += (cmUnit * 0.9); finalWidth += (cmUnit * 0.1); } 
+
+          newItems.push({
+            id: idCounter.toString(),
+            name: nameMap[idCounter] || idCounter.toString(),
+            x: finalX, y: finalY, width: finalWidth, height: finalHeight, 
+            color: colors[(idCounter - 1) % colors.length],
+            image: null
+          });
+          idCounter++;
+        }
+      });
+      return newItems;
+    };
+
+    // --- 主應用程式 (App) ---
+    const App = () => {
+      const [mode, setMode] = useState('memory'); 
+      const [bgImage, setBgImage] = useState(null);
+      const [items, setItems] = useState(() => generateInitialLayout().sort(() => Math.random() - 0.5));
+      const [placedItems, setPlacedItems] = useState({}); 
+      const [draggingItemId, setDraggingItemId] = useState(null);
+      const [score, setScore] = useState(0); 
+      const [memTime, setMemTime] = useState(10); 
+      const [gameTime, setGameTime] = useState(60); 
+      const [isExploding, setIsExploding] = useState(false); 
+
+      const containerRef = useRef(null);
+      const itemsRef = useRef(items); 
+      const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
+
+      useEffect(() => { itemsRef.current = items; }, [items]);
+
+      // --- Memory Phase Timer ---
+      useEffect(() => {
+        if (mode === 'memory') {
+          if (memTime > 0) {
+            const timerId = setTimeout(() => {
+                setMemTime(t => t - 1);
+                sounds.bombTick(); 
+            }, 1000);
+            return () => clearTimeout(timerId);
+          } else {
+            setIsExploding(true);
+            sounds.explosion();
+            setTimeout(() => {
+                setIsExploding(false);
+                setMode('play');
+            }, 800); 
+          }
+        }
+      }, [mode, memTime]);
+
+      // --- Game Phase Timer ---
+      useEffect(() => {
+        if (mode === 'play') {
+            if (gameTime > 0) {
+                const timerId = setTimeout(() => {
+                    setGameTime(t => t - 1);
+                    if (gameTime <= 4) { 
+                        sounds.alarm();
+                    } else if (gameTime <= 11) { 
+                        sounds.warningTick();
+                    } else {
+                        sounds.tick();
+                    }
+                }, 1000);
+                return () => clearTimeout(timerId);
+            } else {
+                const allPlaced = items.every(item => placedItems[item.id]);
+                if (!allPlaced) {
+                    setMode('failed');
+                    sounds.failMusic();
+                }
+            }
+        }
+      }, [mode, gameTime, items, placedItems]);
+
+      const handleImageUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => setBgImage(event.target.result);
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const handleCardImageUpload = (e, itemId) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            updateItem(itemId, { image: event.target.result });
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const addItem = () => {
+        const newId = Date.now().toString();
+        const nextNum = items.length + 1;
+        const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500'];
+        const randomColor = colors[items.length % colors.length];
+        setItems([...items, { id: newId, x: 40, y: 40, width: 15, height: 12.5, name: nextNum.toString(), color: randomColor, image: null }]);
+      };
+
+      const updateItem = useCallback((id, changes) => {
+        setItems(prev => prev.map(item => item.id === id ? { ...item, ...changes } : item));
+      }, []);
+
+      const deleteItem = useCallback((id) => {
+        setItems(prev => prev.filter(item => item.id !== id));
+      }, []);
+
+      const resetLayout = () => {
+        if (window.confirm('確定要重置所有卡牌位置嗎？這將恢復到預設排列。')) {
+          setItems(generateInitialLayout());
+        }
+      };
+
+      const startGame = () => {
+        setItems(prev => [...prev].sort(() => Math.random() - 0.5));
+        setScore(0);
+        setPlacedItems({});
+        setMemTime(10);
+        setGameTime(60);
+        setMode('memory');
+      };
+
+      const resetGame = () => {
+        sounds.stopAll(); // Ensure audio stops when restarting
+        setPlacedItems({});
+        setScore(0);
+        setMemTime(10);
+        setGameTime(60);
+        setMode('memory');
+        setItems(prev => [...prev].sort(() => Math.random() - 0.5));
+      };
+
+      const returnToEdit = () => {
+        setMode('edit');
+        setPlacedItems({});
+        setScore(0);
+        setMemTime(0);
+      };
+
+      const handleDragStart = (e, item) => {
+        if (mode === 'play') {
+            sounds.drag(); 
+        }
+        
+        if (placedItems[item.id]) {
+          setScore(s => Math.max(0, s - 100));
+          const newPlaced = { ...placedItems };
+          delete newPlaced[item.id];
+          setPlacedItems(newPlaced);
+          if (mode === 'won') setMode('play');
+        }
+        setDraggingItemId(item.id);
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        setDragPosition({ x: clientX, y: clientY });
+      };
+
+      useEffect(() => {
+        if (!draggingItemId) return;
+        const handleGlobalDragMove = (e) => {
+          if(e.cancelable && e.type === 'touchmove') e.preventDefault();
+          const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+          const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+          setDragPosition({ x: clientX, y: clientY });
+        };
+        const handleGlobalDragEnd = (e) => {
+          const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+          const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+          checkDrop(clientX, clientY, draggingItemId);
+          setDraggingItemId(null);
+        };
+        window.addEventListener('mousemove', handleGlobalDragMove);
+        window.addEventListener('mouseup', handleGlobalDragEnd);
+        window.addEventListener('touchmove', handleGlobalDragMove, { passive: false });
+        window.addEventListener('touchend', handleGlobalDragEnd);
+        return () => {
+          window.removeEventListener('mousemove', handleGlobalDragMove);
+          window.removeEventListener('mouseup', handleGlobalDragEnd);
+          window.removeEventListener('touchmove', handleGlobalDragMove);
+          window.removeEventListener('touchend', handleGlobalDragEnd);
+        };
+      }, [draggingItemId]); 
+
+      const checkDrop = (cursorX, cursorY, itemId) => {
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        
+        const isInsideBoard = 
+            cursorX >= rect.left && 
+            cursorX <= rect.right && 
+            cursorY >= rect.top && 
+            cursorY <= rect.bottom;
+
+        if (!isInsideBoard) return;
+
+        const relativeX = ((cursorX - rect.left) / rect.width) * 100;
+        const relativeY = ((cursorY - rect.top) / rect.height) * 100;
+
+        const targetItem = itemsRef.current.find(i => i.id === itemId);
+        if (!targetItem) return;
+
+        const tolerance = 10; 
+        const centerX = targetItem.x + targetItem.width / 2;
+        const centerY = targetItem.y + targetItem.height / 2;
+        const dist = Math.sqrt(Math.pow(relativeX - centerX, 2) + Math.pow(relativeY - centerY, 2));
+
+        if (dist < tolerance) {
+          sounds.success(); 
+          setScore(s => s + 100); 
+          setPlacedItems(prev => {
+            const newState = { ...prev, [itemId]: true };
+            checkWin(newState);
+            return newState;
+          });
+        } else {
+            sounds.error();
+            setScore(s => Math.max(0, s - 100)); 
+        }
+      };
+
+      const checkWin = (currentPlacedItems) => {
+        const allPlaced = itemsRef.current.every(item => currentPlacedItems[item.id]);
+        if (allPlaced && itemsRef.current.length > 0) {
+          setScore(s => s + (gameTime * 100)); 
+          setMode('won');
+          sounds.winMusic();
+        }
+      };
+
+      const visibleTrayItems = useMemo(() => {
+        if (mode === 'edit') return items;
+        if (mode === 'memory') return [];
+        const availableItems = items.filter(item => !placedItems[item.id] && draggingItemId !== item.id);
+        return availableItems.slice(0, 4);
+      }, [items, mode, placedItems, draggingItemId]);
+
+      const leftTrayItems = useMemo(() => visibleTrayItems.slice(0, 2), [visibleTrayItems]);
+      const rightTrayItems = useMemo(() => visibleTrayItems.slice(2, 4), [visibleTrayItems]);
+
+      const currentBgImage = useMemo(() => {
+        if (mode === 'memory') return '年齡解答.png';
+        if (mode === 'play' || mode === 'won' || mode === 'failed') return '年齡題目.png'; 
+        return bgImage || '年齡題目.png';
+      }, [mode, bgImage]);
+
+      return (
+        <div className={`h-full flex flex-col font-sans select-none overflow-hidden ${isExploding ? 'animate-shake' : ''}`}>
+          
+          {/* Top Bar */}
+          <div className="h-auto py-2 bg-slate-800 border-b border-slate-700 flex flex-col items-center justify-between px-4 z-40 shadow-md shrink-0 relative">
+            <div className="w-full flex items-center justify-between mb-1">
+                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                    <div className="bg-indigo-600 p-2 rounded-lg">
+                    <Trophy size={28} className="text-white" />
+                    </div>
+                    <h1 className="font-bold text-3xl md:text-4xl hidden sm:block">年齡擺放大挑戰</h1>
+                </div>
+
+                {/* Memory Mode Timer */}
+                {mode === 'memory' && (
+                    <div className="flex items-center gap-2 bg-red-900/80 px-6 py-1.5 rounded-full border border-red-500 animate-timer-tick">
+                    <Bomb size={24} className="text-red-400" />
+                    <span className="font-mono font-bold text-3xl text-red-500">倒數: {memTime}</span>
+                    </div>
+                )}
+
+                {/* Play Mode Timer */}
+                {(mode === 'play') && (
+                    <div className="flex items-center gap-2 bg-slate-700/80 px-4 py-1.5 rounded-full border border-slate-500">
+                    <TimerIcon size={24} className={gameTime < 10 ? "text-red-400" : "text-white"} />
+                    <span className={`font-mono font-bold text-3xl ${gameTime < 10 ? "text-red-500 animate-pulse" : "text-white"}`}>{gameTime}</span>
+                    </div>
+                )}
+
+                {/* Score */}
+                {mode !== 'edit' && mode !== 'memory' && (
+                    <div className="flex items-center gap-2 bg-slate-900/50 px-4 py-1.5 rounded-full border border-slate-700 animate-in fade-in slide-in-from-top-4">
+                    <Star size={24} className="text-yellow-400 fill-yellow-400" />
+                    <span className="font-mono font-bold text-2xl text-yellow-400">{score}</span>
+                    </div>
+                )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                {mode === 'edit' && (
+                    <React.Fragment>
+                    <label className="flex items-center gap-2 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-md cursor-pointer text-sm transition-colors">
+                        <Upload size={16} />
+                        <span className="hidden sm:inline">上傳底圖</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                    </label>
+                    <button onClick={addItem} className="flex items-center gap-2 px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-md text-sm transition-colors">
+                        <Plus size={16} />
+                        <span className="hidden sm:inline">新增</span>
+                    </button>
+                    <button onClick={resetLayout} className="flex items-center gap-2 px-3 py-1.5 bg-red-600/80 hover:bg-red-500 rounded-md text-sm transition-colors">
+                        <RefreshCw size={16} />
+                        <span className="hidden sm:inline">重置佈局</span>
+                    </button>
+                    </React.Fragment>
+                )}
+
+                <div className="h-6 w-px bg-slate-600 mx-2" />
+
+                {/* Replay Button (Now Beautiful Indigo) */}
+                {mode !== 'edit' && (
+                    <button 
+                        onClick={resetGame}
+                        className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full font-bold shadow-lg shadow-indigo-500/30 transition-all active:scale-95 transform hover:-translate-y-0.5"
+                    >
+                        <RefreshCw size={20} />
+                        <span className="hidden sm:inline">重玩</span>
+                    </button>
+                )}
+                </div>
+            </div>
+            
+            <p className="text-yellow-300 text-xl md:text-2xl font-bold tracking-wide drop-shadow-md">請依據幼年、青少年成年、壯年、老年四個階段，依年齡先後擺放適當的卡牌。</p>
+          </div>
+
+          <div className="flex-1 flex flex-row overflow-hidden relative">
+            
+            {/* Left Tray */}
+            {mode !== 'won' && mode !== 'memory' && mode !== 'failed' && (
+                <div className={`w-48 bg-slate-800 border-r border-slate-700 z-10 flex flex-col gap-6 p-4 overflow-y-auto no-scrollbar transition-all duration-300 ${mode === 'edit' ? 'hidden' : ''} `}>
+                    <h3 className="text-center text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">待選區</h3>
+                    {leftTrayItems.map(item => (<TrayItem key={item.id} item={item} mode={mode} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
+                </div>
+            )}
+
+            {/* Edit Mode Tray */}
+            {mode === 'edit' && (
+                <div className="w-64 bg-slate-800 border-r border-slate-700 z-10 flex flex-col gap-4 p-4 overflow-y-auto">
+                    <h3 className="text-center text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">卡牌清單</h3>
+                    {items.map(item => (<TrayItem key={item.id} item={item} mode={mode} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
+                </div>
+            )}
+
+            {/* Game Board Center */}
+            <div className="flex-1 bg-black/50 relative flex items-center justify-center p-2 overflow-visible">
+              <div ref={containerRef} className={`relative w-full max-w-[95vw] shadow-2xl rounded-xl bg-slate-800 transition-all duration-300 ${isExploding ? 'animate-explode' : ''}`} style={{ aspectRatio: bgImage ? 'auto' : '16/9', maxHeight: '90vh' }}>
+                <img src={currentBgImage} alt="Game Background" className="w-full h-full object-contain pointer-events-none select-none block rounded-xl" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
+                <div className="hidden w-full h-full flex-col items-center justify-center text-slate-500 border-4 border-dashed border-slate-700 m-4 rounded-xl bg-slate-900 absolute inset-0">
+                    <ImageIcon size={64} className="mb-4 opacity-50" />
+                    <p className="text-xl mt-4">請確認圖片檔案：</p>
+                    <p className="text-lg font-mono text-yellow-500">{mode === 'memory' ? '年齡解答.png' : '年齡題目.png'}</p>
+                </div>
+
+                <div className="absolute inset-0">
+                  {mode !== 'memory' && mode === 'edit' && items.map(item => (<EditZone key={item.id} item={item} containerRef={containerRef} onUpdate={updateItem} onDelete={deleteItem} />))}
+                  {mode !== 'memory' && (mode === 'play' || mode === 'won') && items.map(item => (<GameTarget key={item.id} item={item} isPlaced={placedItems[item.id]} onDragStart={handleDragStart} />))}
+                </div>
+                
+                {/* Won Overlay */}
+                {mode === 'won' && (
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-50 animate-in fade-in zoom-in duration-500 rounded-xl overflow-hidden">
+                    <Fireworks />
+                    <div className="bg-white text-slate-900 p-12 rounded-2xl shadow-2xl flex flex-col items-center max-w-lg text-center transform rotate-1 relative z-50">
+                      <div className="w-24 h-24 bg-yellow-400 rounded-full flex items-center justify-center -mt-20 mb-6 shadow-lg border-4 border-white"><Trophy size={48} className="text-yellow-800" /></div>
+                      <h2 className="text-4xl font-extrabold mb-4 text-indigo-600">挑戰成功！</h2>
+                      <p className="text-slate-500 mb-2 text-xl">最終得分</p>
+                      <p className="text-6xl font-mono font-bold text-yellow-500 mb-8">{score}</p>
+                      <button onClick={resetGame} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">再玩一次</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Failed Overlay */}
+                {mode === 'failed' && (
+                  <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50 animate-in fade-in zoom-in duration-500 rounded-xl overflow-hidden">
+                    <div className="bg-white text-slate-900 p-12 rounded-2xl shadow-2xl flex flex-col items-center max-w-lg text-center relative z-50 border-4 border-red-500">
+                      <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center -mt-20 mb-6 shadow-lg border-4 border-red-500"><Skull size={48} className="text-red-600" /></div>
+                      <h2 className="text-4xl font-extrabold mb-4 text-red-600">挑戰失敗</h2>
+                      <p className="text-slate-500 mb-2 text-xl">時間到！</p>
+                      <button onClick={resetGame} className="w-full py-4 bg-slate-700 text-white rounded-xl font-bold text-xl hover:bg-slate-600 transition-colors shadow-lg mt-4">再試一次</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Tray */}
+            {mode !== 'won' && mode !== 'edit' && mode !== 'memory' && mode !== 'failed' && (
+                <div className="w-48 bg-slate-800 border-l border-slate-700 z-10 flex flex-col gap-6 p-4 overflow-y-auto no-scrollbar">
+                    <h3 className="text-center text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">待選區</h3>
+                    {rightTrayItems.map(item => (<TrayItem key={item.id} item={item} mode={mode} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
+                </div>
+            )}
+          </div>
+
+          {draggingItemId && (
+            <div className="fixed pointer-events-none z-[100] flex items-center justify-center rounded-lg shadow-2xl opacity-90 scale-110 overflow-hidden" style={{ left: dragPosition.x, top: dragPosition.y, width: '140px', height: '70px', transform: 'translate(-50%, -50%)', backgroundColor: items.find(i => i.id === draggingItemId)?.image ? 'transparent' : (items.find(i => i.id === draggingItemId)?.color.replace('bg-', '') === 'red-500' ? '#ef4444' : '#3b82f6') }}>
+              {items.find(i => i.id === draggingItemId)?.image ? (<img src={items.find(i => i.id === draggingItemId).image} className="w-full h-full object-cover rounded-lg" alt="dragging" />) : (<div className={`w-full h-full rounded-lg ${items.find(i => i.id === draggingItemId)?.color} flex items-center justify-center`}><span className={`text-white font-bold shadow-black drop-shadow-lg text-center px-1 ${items.find(i => i.id === draggingItemId)?.name.length > 4 ? "text-sm" : "text-xl"}`}>{items.find(i => i.id === draggingItemId)?.name}</span></div>)}
+            </div>
+          )}
+
+          {mode === 'edit' && !bgImage && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-full shadow-lg animate-bounce z-50 flex items-center gap-2 pointer-events-none"><Upload size={20} /><span>第一步：請先上傳底圖</span></div>
+          )}
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
