@@ -268,12 +268,11 @@
     };
 
     // --- 側邊/底部卡牌組件 (Tray Item) ---
-    const TrayItem = ({ item, mode, handleDragStart, handleCardImageUpload }) => {
+    // Update: Don't disappear when dragging, just become invisible
+    const TrayItem = ({ item, mode, handleDragStart, handleCardImageUpload, isDragging }) => {
         return (
             <div
                 onTouchStart={(e) => {
-                    // Prevent default to ensure touch doesn't scroll if we are starting a drag
-                    // e.preventDefault(); // Optional, but 'touch-action: none' handles it mostly.
                     if (mode === 'play') handleDragStart(e, item);
                 }}
                 onMouseDown={(e) => mode === 'play' && handleDragStart(e, item)}
@@ -283,6 +282,7 @@
                 ${mode === 'play' ? 'cursor-grab active:cursor-grabbing hover:border-indigo-400 touch-none' : ''}
                 ${item.color}
                 ${mode === 'edit' ? 'hover:border-indigo-400' : ''}
+                ${isDragging ? 'opacity-0 pointer-events-none' : ''} 
                 transition-transform hover:scale-105 select-none
                 `}
                 style={{ touchAction: 'none' }}
@@ -474,19 +474,30 @@
       const checkDrop = (cursorX, cursorY, itemId) => {
         if (!containerRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
-        if (!(cursorX >= rect.left && cursorX <= rect.right && cursorY >= rect.top && cursorY <= rect.bottom)) return;
-
+        
+        // Rectangular Intersection Logic for easier Drop
+        // Check if finger is inside the bounds of the card on the board
         const relativeX = ((cursorX - rect.left) / rect.width) * 100;
         const relativeY = ((cursorY - rect.top) / rect.height) * 100;
+
         const targetItem = itemsRef.current.find(i => i.id === itemId);
         if (!targetItem) return;
 
-        const dist = Math.sqrt(Math.pow(relativeX - (targetItem.x + targetItem.width / 2), 2) + Math.pow(relativeY - (targetItem.y + targetItem.height / 2), 2));
-        if (dist < 10) {
+        // Check intersection: Is the drop point (finger) inside the target rect?
+        const isHit = 
+            relativeX >= targetItem.x && 
+            relativeX <= (targetItem.x + targetItem.width) &&
+            relativeY >= targetItem.y &&
+            relativeY <= (targetItem.y + targetItem.height);
+
+        if (isHit) {
           sounds.success(); setScore(s => s + 100); 
           setPlacedItems(prev => { const newState = { ...prev, [itemId]: true }; checkWin(newState); return newState; });
         } else {
-            sounds.error(); setScore(s => Math.max(0, s - 100)); 
+             // Only penalize if dropped inside board but wrong spot
+             if (cursorX >= rect.left && cursorX <= rect.right && cursorY >= rect.top && cursorY <= rect.bottom) {
+                 sounds.error(); setScore(s => Math.max(0, s - 100)); 
+             }
         }
       };
 
@@ -498,8 +509,10 @@
       const visibleTrayItems = useMemo(() => {
         if (mode === 'edit') return items;
         if (mode === 'memory' || mode === 'start') return [];
-        return items.filter(item => !placedItems[item.id] && draggingItemId !== item.id).slice(0, 4);
-      }, [items, mode, placedItems, draggingItemId]);
+        // Important: Return ALL unplaced items to keep indices stable or use a different key logic if you want
+        // But the request is "Random 4". To keep it stable, we just slice the filtered list.
+        return items.filter(item => !placedItems[item.id]).slice(0, 4);
+      }, [items, mode, placedItems]); // Removed draggingItemId dependency to keep it in the list
 
       const leftTrayItems = useMemo(() => visibleTrayItems.slice(0, 2), [visibleTrayItems]);
       const rightTrayItems = useMemo(() => visibleTrayItems.slice(2, 4), [visibleTrayItems]);
@@ -571,7 +584,7 @@
             {/* Left Tray (Desktop) */}
             <div className="hidden lg:flex w-48 bg-slate-800 border-r border-slate-700 z-10 flex-col gap-6 p-4 overflow-y-auto no-scrollbar">
                 <h3 className="text-center text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">待選區</h3>
-                {visibleTrayItems.slice(0, 2).map(item => (<TrayItem key={item.id} item={item} mode={mode} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
+                {visibleTrayItems.slice(0, 2).map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
             </div>
 
             {/* Game Board Center */}
@@ -591,12 +604,12 @@
             {/* Right Tray (Desktop) */}
             <div className="hidden lg:flex w-48 bg-slate-800 border-l border-slate-700 z-10 flex-col gap-6 p-4 overflow-y-auto no-scrollbar">
                 <h3 className="text-center text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">待選區</h3>
-                {visibleTrayItems.slice(2, 4).map(item => (<TrayItem key={item.id} item={item} mode={mode} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
+                {visibleTrayItems.slice(2, 4).map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
             </div>
 
             {/* Mobile Tray (Bottom) - Only shows on mobile screens */}
             <div className="flex lg:hidden w-full h-32 bg-slate-800 border-t border-slate-700 z-10 flex-row gap-4 p-4 overflow-x-auto no-scrollbar items-center">
-                {visibleTrayItems.map(item => (<TrayItem key={item.id} item={item} mode={mode} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
+                {visibleTrayItems.map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
                 {visibleTrayItems.length === 0 && mode === 'play' && <div className="text-white w-full text-center">所有卡牌已放置</div>}
             </div>
 
@@ -604,7 +617,7 @@
 
           {draggingItemId && (
             <div 
-                className="fixed pointer-events-none z-[100] flex items-center justify-center rounded-lg shadow-2xl opacity-90 scale-110 overflow-hidden" 
+                className="fixed pointer-events-none z-[100] flex items-center justify-center rounded-xl shadow-2xl opacity-90 scale-110 overflow-hidden" 
                 style={{ 
                     left: dragPosition.x, 
                     top: dragPosition.y, 
@@ -617,11 +630,11 @@
               {items.find(i => i.id === draggingItemId)?.image ? (
                 <img 
                   src={items.find(i => i.id === draggingItemId).image} 
-                  className="w-full h-full object-cover rounded-lg" 
+                  className="w-full h-full object-cover rounded-xl" 
                   alt="dragging" 
                 />
               ) : (
-                <div className={`w-full h-full rounded-lg ${items.find(i => i.id === draggingItemId)?.color} flex items-center justify-center`}>
+                <div className={`w-full h-full rounded-xl ${items.find(i => i.id === draggingItemId)?.color} flex items-center justify-center`}>
                    <span className={`text-white font-bold shadow-black drop-shadow-lg text-center px-1 ${items.find(i => i.id === draggingItemId)?.name.length > 4 ? "text-sm" : "text-xl"}`}>{items.find(i => i.id === draggingItemId)?.name}</span>
                 </div>
               )}
