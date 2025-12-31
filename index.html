@@ -268,7 +268,7 @@
     };
 
     // --- 側邊/底部卡牌組件 (Tray Item) ---
-    // Update: Don't disappear when dragging, just become invisible
+    // Update: Decrease size on tablet/desktop (w-full of w-32 container) and adjust font size
     const TrayItem = ({ item, mode, handleDragStart, handleCardImageUpload, isDragging }) => {
         return (
             <div
@@ -277,7 +277,7 @@
                 }}
                 onMouseDown={(e) => mode === 'play' && handleDragStart(e, item)}
                 className={`
-                relative w-full h-24 lg:h-24 rounded-xl shadow-lg border-2 border-slate-600
+                relative w-full h-24 lg:h-20 rounded-xl shadow-lg border-2 border-slate-600
                 flex items-center justify-center shrink-0 overflow-hidden group
                 ${mode === 'play' ? 'cursor-grab active:cursor-grabbing hover:border-indigo-400 touch-none' : ''}
                 ${item.color}
@@ -288,7 +288,7 @@
                 style={{ touchAction: 'none' }}
             >
                 <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white to-transparent" />
-                <span className={`text-white font-bold drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] z-10 text-center px-2 ${item.name.length > 4 ? "text-lg" : "text-2xl"}`}>{item.name}</span>
+                <span className={`text-white font-bold drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] z-10 text-center px-2 ${item.name.length > 4 ? "text-sm lg:text-xs" : "text-xl lg:text-base"}`}>{item.name}</span>
                 {mode === 'edit' && (
                 <label className="absolute inset-0 cursor-pointer flex flex-col items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                     <Camera size={24} className="text-white mb-1" />
@@ -582,7 +582,7 @@
           <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
             
             {/* Left Tray (Desktop) */}
-            <div className="hidden lg:flex w-48 bg-slate-800 border-r border-slate-700 z-10 flex-col gap-6 p-4 overflow-y-auto no-scrollbar">
+            <div className="hidden lg:flex w-32 bg-slate-800 border-r border-slate-700 z-10 flex-col gap-6 p-4 overflow-y-auto no-scrollbar">
                 <h3 className="text-center text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">待選區</h3>
                 {visibleTrayItems.slice(0, 2).map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
             </div>
@@ -602,13 +602,13 @@
             </div>
 
             {/* Right Tray (Desktop) */}
-            <div className="hidden lg:flex w-48 bg-slate-800 border-l border-slate-700 z-10 flex-col gap-6 p-4 overflow-y-auto no-scrollbar">
+            <div className="hidden lg:flex w-32 bg-slate-800 border-l border-slate-700 z-10 flex-col gap-6 p-4 overflow-y-auto no-scrollbar">
                 <h3 className="text-center text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">待選區</h3>
                 {visibleTrayItems.slice(2, 4).map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
             </div>
 
             {/* Mobile Tray (Bottom) - Only shows on mobile screens */}
-            <div className="flex lg:hidden w-full h-32 bg-slate-800 border-t border-slate-700 z-10 flex-row gap-4 p-4 overflow-x-auto no-scrollbar items-center">
+            <div className="flex lg:hidden w-full h-28 bg-slate-800 border-t border-slate-700 z-10 flex-row gap-4 p-4 overflow-x-auto no-scrollbar items-center">
                 {visibleTrayItems.map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
                 {visibleTrayItems.length === 0 && mode === 'play' && <div className="text-white w-full text-center">所有卡牌已放置</div>}
             </div>
