@@ -5,15 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>年齡擺放大挑戰</title>
   
-  <!-- 引入 Tailwind CSS (樣式) -->
+  <!-- 引入 Tailwind CSS (樣式) - 備用 CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // 如果 Tailwind 加載失敗的備用方案
+    if (!window.tailwindcss) {
+      var script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/tailwindcss@3.3.0/lib/index.min.js';
+      document.head.appendChild(script);
+    }
+  </script>
   
-  <!-- 引入 React 和 ReactDOM -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- 引入 React 和 ReactDOM - 使用 jsDelivr 作為主要，unpkg 作為備用 -->
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
   
   <!-- 引入 Babel (讓瀏覽器看懂 JSX) -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.5/babel.min.js"></script>
   
   <style>
     /* 防止手機/平板上下拉動重新整理，並停用預設觸控行為 */
@@ -352,9 +360,9 @@
 
     // --- 主應用程式 (App) ---
     const App = () => {
-      const [mode, setMode] = useState('start'); // Start with a click-to-start screen
-      const [bgImage, setBgImage] = useState(null);
-      const [items, setItems] = useState(() => generateInitialLayout().sort(() => Math.random() - 0.5));
+      const [mode, setMode] = useState('memory'); // Start directly in memory mode - game begins immediately
+      const [bgImage, setBgImage] = useState('年齡解答.png'); // Pre-load the background image for memory phase
+      const [items, setItems] = useState(() => generateInitialLayout());
       const [placedItems, setPlacedItems] = useState({}); 
       const [draggingItemId, setDraggingItemId] = useState(null);
       const [score, setScore] = useState(0); 
@@ -367,6 +375,21 @@
       const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
 
       useEffect(() => { itemsRef.current = items; }, [items]);
+
+      // --- Keyboard Shortcuts for Edit Mode ---
+      useEffect(() => {
+        const handleKeyPress = (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
+            e.preventDefault();
+            setMode('edit');
+            setPlacedItems({});
+            setScore(0);
+            setMemTime(0);
+          }
+        };
+        window.addEventListener('keydown', handleKeyPress);
+        return () => window.removeEventListener('keydown', handleKeyPress);
+      }, []);
 
       // --- Memory Phase Timer ---
       useEffect(() => {
@@ -420,7 +443,7 @@
 
       const startGame = () => {
         sounds.resume(); // Unlock audio
-        setItems(prev => [...prev].sort(() => Math.random() - 0.5));
+        setItems(prev => [...prev].sort(() => Math.random() - 0.5)); // Randomize items for new game
         setScore(0); setPlacedItems({}); setMemTime(10); setGameTime(60); setMode('memory');
       };
 
@@ -520,7 +543,7 @@
       const currentBgImage = useMemo(() => {
         if (mode === 'memory') return '年齡解答.png';
         if (mode === 'play' || mode === 'won' || mode === 'failed') return '年齡題目.png'; 
-        return bgImage || '年齡題目.png';
+        return bgImage && bgImage !== '年齡題目.png' ? bgImage : '年齡題目.png'; // Always show a valid image
       }, [mode, bgImage]);
 
       return (
