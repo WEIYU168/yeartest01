@@ -62,6 +62,20 @@
     .animate-shake {
       animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
     }
+
+    @media (orientation: landscape) and (max-height: 600px) {
+      .game-header { padding: 0.25rem 0.5rem !important; }
+      .game-title { font-size: 1.5rem !important; line-height: 1.2 !important; }
+      .game-instruction { font-size: 0.95rem !important; line-height: 1.15 !important; }
+      .game-status-pill { padding: 0.25rem 0.75rem !important; }
+      .game-status-text { font-size: 1.35rem !important; line-height: 1.2 !important; }
+      .game-board-wrap { padding: 0.25rem !important; }
+      .game-board { max-height: calc(100vh - 74px); }
+      .tray-side-compact { width: 5.75rem !important; gap: 0.5rem !important; padding: 0.5rem !important; }
+      .tray-side-compact h3 { display: none; }
+      .tray-card { height: 4.25rem !important; border-radius: 0.5rem !important; }
+      .drag-preview { width: 110px !important; height: 56px !important; }
+    }
   </style>
 </head>
 <body class="bg-slate-900 text-slate-100 h-screen overflow-hidden flex flex-col">
@@ -285,7 +299,7 @@
                 }}
                 onMouseDown={(e) => mode === 'play' && handleDragStart(e, item)}
                 className={`
-                relative w-full h-24 lg:h-20 rounded-xl shadow-lg border-2 border-slate-600
+                tray-card relative w-full h-24 lg:h-20 rounded-xl shadow-lg border-2 border-slate-600
                 flex items-center justify-center shrink-0 overflow-hidden group
                 ${mode === 'play' ? 'cursor-grab active:cursor-grabbing hover:border-indigo-400 touch-none' : ''}
                 ${item.color}
@@ -369,12 +383,29 @@
       const [memTime, setMemTime] = useState(10); 
       const [gameTime, setGameTime] = useState(60); 
       const [isExploding, setIsExploding] = useState(false); 
+      const [viewportMode, setViewportMode] = useState({ isCompactLandscape: false, isPhoneLike: false });
 
       const containerRef = useRef(null);
       const itemsRef = useRef(items); 
       const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
 
       useEffect(() => { itemsRef.current = items; }, [items]);
+
+      useEffect(() => {
+        const updateViewportMode = () => {
+          setViewportMode({
+            isCompactLandscape: window.matchMedia('(orientation: landscape) and (max-width: 1023px)').matches,
+            isPhoneLike: window.matchMedia('(max-width: 767px), (max-height: 480px)').matches
+          });
+        };
+        updateViewportMode();
+        window.addEventListener('resize', updateViewportMode);
+        window.addEventListener('orientationchange', updateViewportMode);
+        return () => {
+          window.removeEventListener('resize', updateViewportMode);
+          window.removeEventListener('orientationchange', updateViewportMode);
+        };
+      }, []);
 
       // --- Keyboard Shortcuts for Edit Mode ---
       useEffect(() => {
@@ -532,10 +563,10 @@
       const visibleTrayItems = useMemo(() => {
         if (mode === 'edit') return items;
         if (mode === 'memory' || mode === 'start') return [];
-        // Important: Return ALL unplaced items to keep indices stable or use a different key logic if you want
-        // But the request is "Random 4". To keep it stable, we just slice the filtered list.
-        return items.filter(item => !placedItems[item.id]).slice(0, 4);
-      }, [items, mode, placedItems]); // Removed draggingItemId dependency to keep it in the list
+        const unplacedItems = items.filter(item => !placedItems[item.id]);
+        if (viewportMode.isPhoneLike) return [...unplacedItems].sort(() => Math.random() - 0.5).slice(0, 4);
+        return unplacedItems.slice(0, 4);
+      }, [items, mode, placedItems, viewportMode.isPhoneLike]);
 
       const leftTrayItems = useMemo(() => visibleTrayItems.slice(0, 2), [visibleTrayItems]);
       const rightTrayItems = useMemo(() => visibleTrayItems.slice(2, 4), [visibleTrayItems]);
@@ -563,26 +594,26 @@
             </div>
           )}
 
-          <div className="h-auto py-2 bg-slate-800 border-b border-slate-700 flex flex-col items-center justify-between px-4 z-40 shadow-md shrink-0 relative">
+          <div className="game-header h-auto py-2 bg-slate-800 border-b border-slate-700 flex flex-col items-center justify-between px-4 z-40 shadow-md shrink-0 relative">
             <div className="w-full flex items-center justify-between mb-1">
                 <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
                     <div className="bg-indigo-600 p-2 rounded-lg"><Trophy size={28} className="text-white" /></div>
-                    <h1 className="font-bold text-3xl md:text-4xl hidden sm:block">年齡擺放大挑戰</h1>
+                    <h1 className="game-title font-bold text-3xl md:text-4xl hidden sm:block">年齡擺放大挑戰</h1>
                 </div>
                 {mode === 'memory' && (
-                    <div className="flex items-center gap-2 bg-red-900/80 px-6 py-1.5 rounded-full border border-red-500 animate-timer-tick">
-                    <Bomb size={24} className="text-red-400" /><span className="font-mono font-bold text-3xl text-red-500">記憶倒數: {memTime}</span>
+                    <div className="game-status-pill flex items-center gap-2 bg-red-900/80 px-6 py-1.5 rounded-full border border-red-500 animate-timer-tick">
+                    <Bomb size={24} className="text-red-400" /><span className="game-status-text font-mono font-bold text-3xl text-red-500">記憶倒數: {memTime}</span>
                     </div>
                 )}
                 {(mode === 'play') && (
-                    <div className="flex items-center gap-2 bg-slate-700/80 px-4 py-1.5 rounded-full border border-slate-500">
-                    <TimerIcon size={24} className={gameTime < 10 ? "text-red-400" : "text-white"} /><span className={`font-mono font-bold text-3xl ${gameTime < 10 ? "text-red-500 animate-pulse" : "text-white"}`}>{gameTime}</span>
+                    <div className="game-status-pill flex items-center gap-2 bg-slate-700/80 px-4 py-1.5 rounded-full border border-slate-500">
+                    <TimerIcon size={24} className={gameTime < 10 ? "text-red-400" : "text-white"} /><span className={`game-status-text font-mono font-bold text-3xl ${gameTime < 10 ? "text-red-500 animate-pulse" : "text-white"}`}>{gameTime}</span>
                     </div>
                 )}
                 {mode !== 'edit' && mode !== 'memory' && mode !== 'start' && (
-                    <div className="flex items-center gap-2 bg-slate-900/50 px-4 py-1.5 rounded-full border border-slate-700 animate-in fade-in slide-in-from-top-4">
-                    <Star size={24} className="text-yellow-400 fill-yellow-400" /><span className="font-mono font-bold text-2xl text-yellow-400">{score}</span>
+                    <div className="game-status-pill flex items-center gap-2 bg-slate-900/50 px-4 py-1.5 rounded-full border border-slate-700 animate-in fade-in slide-in-from-top-4">
+                    <Star size={24} className="text-yellow-400 fill-yellow-400" /><span className="game-status-text font-mono font-bold text-2xl text-yellow-400">{score}</span>
                     </div>
                 )}
                 </div>
@@ -599,20 +630,20 @@
                 {mode !== 'edit' && mode !== 'start' && (<button onClick={resetGame} className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full font-bold shadow-lg shadow-indigo-500/30 transition-all active:scale-95 transform hover:-translate-y-0.5"><RefreshCw size={20} /><span className="hidden sm:inline">重玩</span></button>)}
                 </div>
             </div>
-            <p className="text-yellow-300 text-xl md:text-2xl font-bold tracking-wide drop-shadow-md">請依據幼年、青少年成年、壯年、老年四個階段，依年齡先後擺放適當的卡牌。</p>
+            <p className="game-instruction text-yellow-300 text-xl md:text-2xl font-bold tracking-wide drop-shadow-md">請依據幼年、青少年成年、壯年、老年四個階段，依年齡先後擺放適當的卡牌。</p>
           </div>
 
-          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+          <div className={`flex-1 flex ${viewportMode.isCompactLandscape ? 'flex-row' : 'flex-col lg:flex-row'} overflow-hidden relative`}>
             
             {/* Left Tray (Desktop) */}
-            <div className="hidden lg:flex w-32 bg-slate-800 border-r border-slate-700 z-10 flex-col gap-6 p-4 overflow-y-auto no-scrollbar">
+            <div className={`${viewportMode.isCompactLandscape ? 'flex tray-side-compact' : 'hidden lg:flex w-32'} bg-slate-800 border-r border-slate-700 z-10 flex-col gap-6 p-4 overflow-y-auto no-scrollbar`}>
                 <h3 className="text-center text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">待選區</h3>
-                {visibleTrayItems.slice(0, 2).map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
+                {leftTrayItems.map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
             </div>
 
             {/* Game Board Center */}
-            <div className="flex-1 bg-black/50 relative flex items-center justify-center p-2 overflow-visible">
-              <div ref={containerRef} className={`relative w-full max-w-[95vw] shadow-2xl rounded-xl bg-slate-800 transition-all duration-300 ${isExploding ? 'animate-explode' : ''}`} style={{ aspectRatio: bgImage ? 'auto' : '16/9', maxHeight: '90vh' }}>
+            <div className="game-board-wrap flex-1 min-w-0 bg-black/50 relative flex items-center justify-center p-2 overflow-visible">
+              <div ref={containerRef} className={`game-board relative w-full max-w-[95vw] shadow-2xl rounded-xl bg-slate-800 transition-all duration-300 ${isExploding ? 'animate-explode' : ''}`} style={{ aspectRatio: bgImage ? 'auto' : '16/9', maxHeight: viewportMode.isCompactLandscape ? 'calc(100vh - 74px)' : '90vh' }}>
                 <img src={currentBgImage} alt="Game Background" className="w-full h-full object-contain pointer-events-none select-none block rounded-xl" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
                 <div className="hidden w-full h-full flex-col items-center justify-center text-slate-500 border-4 border-dashed border-slate-700 m-4 rounded-xl bg-slate-900 absolute inset-0"><ImageIcon size={64} className="mb-4 opacity-50" /><p className="text-xl mt-4">請確認圖片檔案：</p><p className="text-lg font-mono text-yellow-500">{mode === 'memory' ? '年齡解答.png' : '年齡題目.png'}</p></div>
                 <div className="absolute inset-0">
@@ -625,13 +656,13 @@
             </div>
 
             {/* Right Tray (Desktop) */}
-            <div className="hidden lg:flex w-32 bg-slate-800 border-l border-slate-700 z-10 flex-col gap-6 p-4 overflow-y-auto no-scrollbar">
+            <div className={`${viewportMode.isCompactLandscape ? 'flex tray-side-compact' : 'hidden lg:flex w-32'} bg-slate-800 border-l border-slate-700 z-10 flex-col gap-6 p-4 overflow-y-auto no-scrollbar`}>
                 <h3 className="text-center text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">待選區</h3>
-                {visibleTrayItems.slice(2, 4).map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
+                {rightTrayItems.map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
             </div>
 
             {/* Mobile Tray (Bottom) - Only shows on mobile screens */}
-            <div className="flex lg:hidden w-full h-28 bg-slate-800 border-t border-slate-700 z-10 flex-row gap-4 p-4 overflow-x-auto no-scrollbar items-center">
+            <div className={`${viewportMode.isCompactLandscape ? 'hidden' : 'flex lg:hidden'} w-full h-28 bg-slate-800 border-t border-slate-700 z-10 flex-row gap-4 p-4 overflow-x-auto no-scrollbar items-center`}>
                 {visibleTrayItems.map(item => (<TrayItem key={item.id} item={item} mode={mode} isDragging={draggingItemId === item.id} handleDragStart={handleDragStart} handleCardImageUpload={handleCardImageUpload} />))}
                 {visibleTrayItems.length === 0 && mode === 'play' && <div className="text-white w-full text-center">所有卡牌已放置</div>}
             </div>
@@ -640,7 +671,7 @@
 
           {draggingItemId && (
             <div 
-                className="fixed pointer-events-none z-[100] flex items-center justify-center rounded-xl shadow-2xl opacity-90 scale-110 overflow-hidden" 
+                className="drag-preview fixed pointer-events-none z-[100] flex items-center justify-center rounded-xl shadow-2xl opacity-90 scale-110 overflow-hidden" 
                 style={{ 
                     left: dragPosition.x, 
                     top: dragPosition.y, 
