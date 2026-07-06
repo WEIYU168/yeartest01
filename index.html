@@ -591,9 +591,8 @@
         if (mode === 'edit') return items;
         if (mode === 'memory' || mode === 'start') return [];
         const unplacedItems = items.filter(item => !placedItems[item.id]);
-        if (viewportMode.isPhoneLike) return [...unplacedItems].sort(() => Math.random() - 0.5).slice(0, 4);
-        return unplacedItems.slice(0, 4);
-      }, [items, mode, placedItems, viewportMode.isPhoneLike]);
+        return [...unplacedItems].sort(() => Math.random() - 0.5).slice(0, 4);
+      }, [items, mode, placedItems]);
 
       const leftTrayItems = useMemo(() => visibleTrayItems.slice(0, 2), [visibleTrayItems]);
       const rightTrayItems = useMemo(() => visibleTrayItems.slice(2, 4), [visibleTrayItems]);
