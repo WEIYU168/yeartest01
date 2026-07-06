@@ -74,7 +74,6 @@
       .tray-side-compact { width: 5.75rem !important; gap: 0.5rem !important; padding: 0.5rem !important; }
       .tray-side-compact h3 { display: none; }
       .tray-card { height: 4.25rem !important; border-radius: 0.5rem !important; }
-      .drag-preview { width: 110px !important; height: 56px !important; }
     }
   </style>
 </head>
@@ -384,8 +383,11 @@
       const [gameTime, setGameTime] = useState(60); 
       const [isExploding, setIsExploding] = useState(false); 
       const [viewportMode, setViewportMode] = useState({ isCompactLandscape: false, isPhoneLike: false });
+      const [bgNaturalSize, setBgNaturalSize] = useState({ width: 1280, height: 720 });
+      const [boardBounds, setBoardBounds] = useState({ width: 0, height: 0 });
 
       const containerRef = useRef(null);
+      const boardWrapRef = useRef(null);
       const itemsRef = useRef(items); 
       const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
 
@@ -404,6 +406,31 @@
         return () => {
           window.removeEventListener('resize', updateViewportMode);
           window.removeEventListener('orientationchange', updateViewportMode);
+        };
+      }, []);
+
+      useEffect(() => {
+        const wrap = boardWrapRef.current;
+        if (!wrap) return;
+        const updateBounds = () => {
+          const rect = wrap.getBoundingClientRect();
+          const style = window.getComputedStyle(wrap);
+          const horizontalPadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+          const verticalPadding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+          setBoardBounds({
+            width: Math.max(0, rect.width - horizontalPadding),
+            height: Math.max(0, rect.height - verticalPadding)
+          });
+        };
+        updateBounds();
+        const resizeObserver = new ResizeObserver(updateBounds);
+        resizeObserver.observe(wrap);
+        window.addEventListener('resize', updateBounds);
+        window.addEventListener('orientationchange', updateBounds);
+        return () => {
+          resizeObserver.disconnect();
+          window.removeEventListener('resize', updateBounds);
+          window.removeEventListener('orientationchange', updateBounds);
         };
       }, []);
 
@@ -577,6 +604,35 @@
         return bgImage && bgImage !== '年齡題目.png' ? bgImage : '年齡題目.png'; // Always show a valid image
       }, [mode, bgImage]);
 
+      const bgRatio = bgNaturalSize.width / bgNaturalSize.height;
+      const boardWidth = boardBounds.width && boardBounds.height
+        ? Math.min(boardBounds.width, boardBounds.height * bgRatio)
+        : null;
+      const boardHeight = boardWidth ? boardWidth / bgRatio : null;
+      const boardStyle = {
+        aspectRatio: `${bgNaturalSize.width} / ${bgNaturalSize.height}`,
+        width: boardWidth ? `${boardWidth}px` : '100%',
+        maxWidth: '100%',
+        maxHeight: '100%'
+      };
+      const draggingItem = draggingItemId ? items.find(i => i.id === draggingItemId) : null;
+      const dragPreviewStyle = draggingItem && boardWidth && boardHeight
+        ? {
+            width: `${(draggingItem.width / 100) * boardWidth}px`,
+            height: `${(draggingItem.height / 100) * boardHeight}px`
+          }
+        : { width: '140px', height: '70px' };
+
+      const handleBgLoad = useCallback((e) => {
+        const { naturalWidth, naturalHeight } = e.currentTarget;
+        if (!naturalWidth || !naturalHeight) return;
+        setBgNaturalSize(prev => (
+          prev.width === naturalWidth && prev.height === naturalHeight
+            ? prev
+            : { width: naturalWidth, height: naturalHeight }
+        ));
+      }, []);
+
       return (
         <div className={`h-full flex flex-col font-sans select-none overflow-hidden ${isExploding ? 'animate-shake' : ''}`}>
           
@@ -642,9 +698,9 @@
             </div>
 
             {/* Game Board Center */}
-            <div className="game-board-wrap flex-1 min-w-0 bg-black/50 relative flex items-center justify-center p-2 overflow-visible">
-              <div ref={containerRef} className={`game-board relative w-full max-w-[95vw] shadow-2xl rounded-xl bg-slate-800 transition-all duration-300 ${isExploding ? 'animate-explode' : ''}`} style={{ aspectRatio: bgImage ? 'auto' : '16/9', maxHeight: viewportMode.isCompactLandscape ? 'calc(100vh - 74px)' : '90vh' }}>
-                <img src={currentBgImage} alt="Game Background" className="w-full h-full object-contain pointer-events-none select-none block rounded-xl" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
+            <div ref={boardWrapRef} className="game-board-wrap flex-1 min-w-0 bg-black/50 relative flex items-center justify-center p-2 overflow-hidden">
+              <div ref={containerRef} className={`game-board relative shadow-2xl rounded-xl bg-slate-800 transition-all duration-300 overflow-hidden ${isExploding ? 'animate-explode' : ''}`} style={boardStyle}>
+                <img key={currentBgImage} src={currentBgImage} alt="Game Background" className="absolute inset-0 w-full h-full object-fill pointer-events-none select-none block rounded-xl" onLoad={handleBgLoad} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
                 <div className="hidden w-full h-full flex-col items-center justify-center text-slate-500 border-4 border-dashed border-slate-700 m-4 rounded-xl bg-slate-900 absolute inset-0"><ImageIcon size={64} className="mb-4 opacity-50" /><p className="text-xl mt-4">請確認圖片檔案：</p><p className="text-lg font-mono text-yellow-500">{mode === 'memory' ? '年齡解答.png' : '年齡題目.png'}</p></div>
                 <div className="absolute inset-0">
                   {mode !== 'memory' && mode === 'edit' && items.map(item => (<EditZone key={item.id} item={item} containerRef={containerRef} onUpdate={updateItem} onDelete={deleteItem} />))}
@@ -675,21 +731,21 @@
                 style={{ 
                     left: dragPosition.x, 
                     top: dragPosition.y, 
-                    width: '140px', 
-                    height: '70px', 
+                    width: dragPreviewStyle.width, 
+                    height: dragPreviewStyle.height, 
                     transform: 'translate(-50%, -50%)', 
-                    backgroundColor: items.find(i => i.id === draggingItemId)?.image ? 'transparent' : (items.find(i => i.id === draggingItemId)?.color.replace('bg-', '') === 'red-500' ? '#ef4444' : '#3b82f6') 
+                    backgroundColor: draggingItem?.image ? 'transparent' : (draggingItem?.color.replace('bg-', '') === 'red-500' ? '#ef4444' : '#3b82f6') 
                 }}
             >
-              {items.find(i => i.id === draggingItemId)?.image ? (
+              {draggingItem?.image ? (
                 <img 
-                  src={items.find(i => i.id === draggingItemId).image} 
+                  src={draggingItem.image} 
                   className="w-full h-full object-contain rounded-xl bg-white/90" 
                   alt="dragging" 
                 />
               ) : (
-                <div className={`w-full h-full rounded-xl ${items.find(i => i.id === draggingItemId)?.color} flex items-center justify-center`}>
-                   <span className={`text-white font-bold shadow-black drop-shadow-lg text-center px-1 ${items.find(i => i.id === draggingItemId)?.name.length > 4 ? "text-sm" : "text-xl"}`}>{items.find(i => i.id === draggingItemId)?.name}</span>
+                <div className={`w-full h-full rounded-xl ${draggingItem?.color} flex items-center justify-center`}>
+                   <span className={`text-white font-bold shadow-black drop-shadow-lg text-center px-1 ${draggingItem?.name.length > 4 ? "text-sm" : "text-xl"}`}>{draggingItem?.name}</span>
                 </div>
               )}
             </div>
