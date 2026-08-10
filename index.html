@@ -5,16 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>年齡擺放大挑戰</title>
   
-  <!-- 引入 Tailwind CSS (樣式) - 備用 CDN -->
+  <!-- 引入 Tailwind CSS (樣式) -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    // 如果 Tailwind 加載失敗的備用方案
-    if (!window.tailwindcss) {
-      var script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/tailwindcss@3.3.0/lib/index.min.js';
-      document.head.appendChild(script);
-    }
-  </script>
   
   <!-- 引入 React 和 ReactDOM - 使用 jsDelivr 作為主要，unpkg 作為備用 -->
   <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
@@ -280,7 +272,7 @@
           {isPlaced && (
             <React.Fragment>
               <div className={`absolute inset-0 w-full h-full ${item.color} flex items-center justify-center text-white font-bold shadow-inner pointer-events-none`}><span className="drop-shadow-md text-sm p-1 text-center">{item.name}</span></div>
-              {!imgError && (<img src={item.image || `${item.name}.png`} alt={item.name} className="absolute inset-0 w-full h-full object-contain pointer-events-none bg-white/90" onError={() => setImgError(true)} />)}
+              {!imgError && (<img src={item.image || `${item.name}.png`} alt={item.name} decoding="async" className="absolute inset-0 w-full h-full object-contain pointer-events-none bg-white/90" onError={() => setImgError(true)} />)}
               <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition-colors pointer-events-none"><Check size={24} className="text-white drop-shadow-lg" /></div>
             </React.Fragment>
           )}
@@ -325,7 +317,7 @@
     const generateInitialLayout = () => {
       const newItems = [];
       const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-orange-500'];
-      const nameMap = { 1: '彌月', 2: '襁褓', 3: '周晬', 4: '始齔之年', 5: '總角', 6: '荳蔻年華', 7: '及笄束髮志學', 8: '破瓜之年', 9: '弱冠之禮', 10: '花信之年', 11: '而立之年', 12: '不惑之年', 13: '知命之年', 14: '花甲耳順', 15: '古稀之年', 16: '耄耋之年', 17: '期頤之年' };
+      const nameMap = { 1: '彌月', 2: '襁褓', 3: '周晬', 4: '始齔之年', 5: '總角', 6: '荳蔻年華', 7: '及笄束髮志學', 8: '破瓜之年', 9: '弱冠之年', 10: '花信之年', 11: '而立之年', 12: '不惑之年', 13: '知命之年', 14: '花甲耳順', 15: '古稀之年', 16: '耄耋之年', 17: '期頤之年' };
       const colCounts = [5, 5, 3, 4];
       let idCounter = 1;
       const baseTop = 8; const baseLeft = 5; const xStep = 23; const yStep = 16; 
@@ -392,6 +384,19 @@
       const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
 
       useEffect(() => { itemsRef.current = items; }, [items]);
+
+      useEffect(() => {
+        const imageSources = ['年齡題目.png', ...itemsRef.current.map(item => `${item.name}.png`)];
+        const preloadedImages = imageSources.map((src, index) => {
+          const image = new Image();
+          image.decoding = 'async';
+          if ('fetchPriority' in image) image.fetchPriority = index === 0 ? 'high' : 'low';
+          image.src = src;
+          image.decode?.().catch(() => {});
+          return image;
+        });
+        return () => preloadedImages.forEach(image => { image.src = ''; });
+      }, []);
 
       useEffect(() => {
         const updateViewportMode = () => {
@@ -699,7 +704,7 @@
             {/* Game Board Center */}
             <div ref={boardWrapRef} className="game-board-wrap flex-1 min-w-0 bg-black/50 relative flex items-center justify-center p-2 overflow-hidden">
               <div ref={containerRef} className={`game-board relative shadow-2xl rounded-xl bg-slate-800 transition-all duration-300 overflow-hidden ${isExploding ? 'animate-explode' : ''}`} style={boardStyle}>
-                <img key={currentBgImage} src={currentBgImage} alt="Game Background" className="absolute inset-0 w-full h-full object-fill pointer-events-none select-none block rounded-xl" onLoad={handleBgLoad} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
+                <img key={currentBgImage} src={currentBgImage} alt="Game Background" decoding="async" className="absolute inset-0 w-full h-full object-fill pointer-events-none select-none block rounded-xl" onLoad={handleBgLoad} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
                 <div className="hidden w-full h-full flex-col items-center justify-center text-slate-500 border-4 border-dashed border-slate-700 m-4 rounded-xl bg-slate-900 absolute inset-0"><ImageIcon size={64} className="mb-4 opacity-50" /><p className="text-xl mt-4">請確認圖片檔案：</p><p className="text-lg font-mono text-yellow-500">{mode === 'memory' ? '年齡解答.png' : '年齡題目.png'}</p></div>
                 <div className="absolute inset-0">
                   {mode !== 'memory' && mode === 'edit' && items.map(item => (<EditZone key={item.id} item={item} containerRef={containerRef} onUpdate={updateItem} onDelete={deleteItem} />))}
