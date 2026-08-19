@@ -7,6 +7,8 @@
   
   <!-- 引入 Tailwind CSS (樣式) -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preload" as="image" href="年齡解答.png" fetchpriority="high">
+  <link rel="preload" as="image" href="年齡題目.png" fetchpriority="high">
   
   <!-- 引入 React 和 ReactDOM - 使用 jsDelivr 作為主要，unpkg 作為備用 -->
   <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
@@ -201,6 +203,7 @@
     const TimerIcon = (props) => <IconBase {...props}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></IconBase>;
     const Bomb = (props) => <IconBase {...props}><circle cx="12" cy="13" r="9"/><path d="M11 2a1 1 0 0 1 2 0v2h-2V2z"/><path d="m20.5 5.5-1.5 1.5"/></IconBase>;
     const Skull = (props) => <IconBase {...props}><path d="m12.5 17-.5-1-.5 1h1z"/><path d="M15 22a1 1 0 0 0 1-1v-1a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20v1a1 1 0 0 0 1 1h6z"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="12" r="1"/></IconBase>;
+    const BookOpen = (props) => <IconBase {...props}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></IconBase>;
 
 
     // --- 編輯區域組件 ---
@@ -262,6 +265,7 @@
 
       return (
         <div
+          data-item-name={item.name}
           className={`absolute transition-all duration-300 rounded-lg flex items-center justify-center z-20 overflow-hidden
             ${isPlaced ? 'opacity-100 shadow-lg scale-100 cursor-grab active:cursor-grabbing hover:brightness-110' : 'opacity-0'}
           `}
@@ -386,11 +390,11 @@
       useEffect(() => { itemsRef.current = items; }, [items]);
 
       useEffect(() => {
-        const imageSources = ['年齡題目.png', ...itemsRef.current.map(item => `${item.name}.png`)];
+        const imageSources = ['年齡解答.png', '年齡題目.png', ...itemsRef.current.map(item => `${item.name}.png`)];
         const preloadedImages = imageSources.map((src, index) => {
           const image = new Image();
           image.decoding = 'async';
-          if ('fetchPriority' in image) image.fetchPriority = index === 0 ? 'high' : 'low';
+          if ('fetchPriority' in image) image.fetchPriority = index < 2 ? 'high' : 'low';
           image.src = src;
           image.decode?.().catch(() => {});
           return image;
@@ -515,6 +519,10 @@
         setItems(prev => [...prev].sort(() => Math.random() - 0.5));
       };
 
+      const reviewAnswers = () => {
+        sounds.stopAll(); setPlacedItems({}); setDraggingItemId(null); setIsExploding(false); setMemTime(10); setGameTime(60); setMode('review');
+      };
+
       const returnToEdit = () => { setMode('edit'); setPlacedItems({}); setScore(0); setMemTime(0); };
 
       const handleDragStart = (e, item) => {
@@ -594,7 +602,7 @@
 
       const visibleTrayItems = useMemo(() => {
         if (mode === 'edit') return items;
-        if (mode === 'memory' || mode === 'start') return [];
+        if (mode === 'memory' || mode === 'review' || mode === 'start') return [];
         const unplacedItems = items.filter(item => !placedItems[item.id]);
         return [...unplacedItems].sort(() => Math.random() - 0.5).slice(0, 4);
       }, [items, mode, placedItems]);
@@ -603,7 +611,7 @@
       const rightTrayItems = useMemo(() => visibleTrayItems.slice(2, 4), [visibleTrayItems]);
 
       const currentBgImage = useMemo(() => {
-        if (mode === 'memory') return '年齡解答.png';
+        if (mode === 'memory' || mode === 'review') return '年齡解答.png';
         if (mode === 'play' || mode === 'won' || mode === 'failed') return '年齡題目.png'; 
         return bgImage && bgImage !== '年齡題目.png' ? bgImage : '年齡題目.png'; // Always show a valid image
       }, [mode, bgImage]);
@@ -666,12 +674,17 @@
                     <Bomb size={24} className="text-red-400" /><span className="game-status-text font-mono font-bold text-3xl text-red-500">記憶倒數: {memTime}</span>
                     </div>
                 )}
+                {mode === 'review' && (
+                    <div className="game-status-pill flex items-center gap-2 bg-emerald-900/80 px-5 py-1.5 rounded-full border border-emerald-500">
+                    <BookOpen size={24} className="text-emerald-300" /><span className="game-status-text font-bold text-xl text-emerald-200">加強複習中・點選重玩開始倒數</span>
+                    </div>
+                )}
                 {(mode === 'play') && (
                     <div className="game-status-pill flex items-center gap-2 bg-slate-700/80 px-4 py-1.5 rounded-full border border-slate-500">
                     <TimerIcon size={24} className={gameTime < 10 ? "text-red-400" : "text-white"} /><span className={`game-status-text font-mono font-bold text-3xl ${gameTime < 10 ? "text-red-500 animate-pulse" : "text-white"}`}>{gameTime}</span>
                     </div>
                 )}
-                {mode !== 'edit' && mode !== 'memory' && mode !== 'start' && (
+                {mode !== 'edit' && mode !== 'memory' && mode !== 'review' && mode !== 'start' && (
                     <div className="game-status-pill flex items-center gap-2 bg-slate-900/50 px-4 py-1.5 rounded-full border border-slate-700 animate-in fade-in slide-in-from-top-4">
                     <Star size={24} className="text-yellow-400 fill-yellow-400" /><span className="game-status-text font-mono font-bold text-2xl text-yellow-400">{score}</span>
                     </div>
@@ -704,14 +717,14 @@
             {/* Game Board Center */}
             <div ref={boardWrapRef} className="game-board-wrap flex-1 min-w-0 bg-black/50 relative flex items-center justify-center p-2 overflow-hidden">
               <div ref={containerRef} className={`game-board relative shadow-2xl rounded-xl bg-slate-800 transition-all duration-300 overflow-hidden ${isExploding ? 'animate-explode' : ''}`} style={boardStyle}>
-                <img key={currentBgImage} src={currentBgImage} alt="Game Background" decoding="async" className="absolute inset-0 w-full h-full object-fill pointer-events-none select-none block rounded-xl" onLoad={handleBgLoad} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
-                <div className="hidden w-full h-full flex-col items-center justify-center text-slate-500 border-4 border-dashed border-slate-700 m-4 rounded-xl bg-slate-900 absolute inset-0"><ImageIcon size={64} className="mb-4 opacity-50" /><p className="text-xl mt-4">請確認圖片檔案：</p><p className="text-lg font-mono text-yellow-500">{mode === 'memory' ? '年齡解答.png' : '年齡題目.png'}</p></div>
+                <img src={currentBgImage} alt="Game Background" decoding="async" loading="eager" fetchPriority="high" className="absolute inset-0 w-full h-full object-fill pointer-events-none select-none block rounded-xl" onLoad={handleBgLoad} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
+                <div className="hidden w-full h-full flex-col items-center justify-center text-slate-500 border-4 border-dashed border-slate-700 m-4 rounded-xl bg-slate-900 absolute inset-0"><ImageIcon size={64} className="mb-4 opacity-50" /><p className="text-xl mt-4">請確認圖片檔案：</p><p className="text-lg font-mono text-yellow-500">{mode === 'memory' || mode === 'review' ? '年齡解答.png' : '年齡題目.png'}</p></div>
                 <div className="absolute inset-0">
                   {mode !== 'memory' && mode === 'edit' && items.map(item => (<EditZone key={item.id} item={item} containerRef={containerRef} onUpdate={updateItem} onDelete={deleteItem} />))}
                   {mode !== 'memory' && mode !== 'start' && (mode === 'play' || mode === 'won') && items.map(item => (<GameTarget key={item.id} item={item} isPlaced={placedItems[item.id]} onDragStart={handleDragStart} />))}
                 </div>
-                {mode === 'won' && (<div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-50 animate-in fade-in zoom-in duration-500 rounded-xl overflow-hidden"><Fireworks /><div className="bg-white text-slate-900 p-12 rounded-2xl shadow-2xl flex flex-col items-center max-w-lg text-center transform rotate-1 relative z-50"><div className="w-24 h-24 bg-yellow-400 rounded-full flex items-center justify-center -mt-20 mb-6 shadow-lg border-4 border-white"><Trophy size={48} className="text-yellow-800" /></div><h2 className="text-4xl font-extrabold mb-4 text-indigo-600">挑戰成功！</h2><p className="text-slate-500 mb-2 text-xl">最終得分</p><p className="text-6xl font-mono font-bold text-yellow-500 mb-8">{score}</p><button onClick={resetGame} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">再玩一次</button></div></div>)}
-                {mode === 'failed' && (<div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50 animate-in fade-in zoom-in duration-500 rounded-xl overflow-hidden"><div className="bg-white text-slate-900 p-12 rounded-2xl shadow-2xl flex flex-col items-center max-w-lg text-center relative z-50 border-4 border-red-500"><div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center -mt-20 mb-6 shadow-lg border-4 border-red-500"><Skull size={48} className="text-red-600" /></div><h2 className="text-4xl font-extrabold mb-4 text-red-600">挑戰失敗</h2><p className="text-slate-500 mb-2 text-xl">時間到！</p><button onClick={resetGame} className="w-full py-4 bg-slate-700 text-white rounded-xl font-bold text-xl hover:bg-slate-600 transition-colors shadow-lg mt-4">再試一次</button></div></div>)}
+                {mode === 'won' && (<div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-50 animate-in fade-in zoom-in duration-500 rounded-xl overflow-hidden"><Fireworks /><div className="bg-white text-slate-900 p-12 rounded-2xl shadow-2xl flex flex-col items-center max-w-lg text-center transform rotate-1 relative z-50"><div className="w-24 h-24 bg-yellow-400 rounded-full flex items-center justify-center -mt-20 mb-6 shadow-lg border-4 border-white"><Trophy size={48} className="text-yellow-800" /></div><h2 className="text-4xl font-extrabold mb-4 text-indigo-600">挑戰成功！</h2><p className="text-slate-500 mb-2 text-xl">最終得分</p><p className="text-6xl font-mono font-bold text-yellow-500 mb-8">{score}</p><div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3"><button onClick={resetGame} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">再玩一次</button><button onClick={reviewAnswers} className="w-full py-4 bg-emerald-600 text-white rounded-xl font-bold text-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200">加強複習</button></div></div></div>)}
+                {mode === 'failed' && (<div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50 animate-in fade-in zoom-in duration-500 rounded-xl overflow-hidden"><div className="bg-white text-slate-900 p-12 rounded-2xl shadow-2xl flex flex-col items-center max-w-lg text-center relative z-50 border-4 border-red-500"><div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center -mt-20 mb-6 shadow-lg border-4 border-red-500"><Skull size={48} className="text-red-600" /></div><h2 className="text-4xl font-extrabold mb-4 text-red-600">挑戰失敗</h2><p className="text-slate-500 mb-2 text-xl">時間到！</p><div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4"><button onClick={resetGame} className="w-full py-4 bg-slate-700 text-white rounded-xl font-bold text-xl hover:bg-slate-600 transition-colors shadow-lg">再玩一次</button><button onClick={reviewAnswers} className="w-full py-4 bg-emerald-600 text-white rounded-xl font-bold text-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200">加強複習</button></div></div></div>)}
               </div>
             </div>
 
